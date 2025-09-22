@@ -1,6 +1,6 @@
 [package]
 name = "milrouter"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 repository = "https://github.com/tascord/milrouter"
 description = "The Millennium Router; Making routing easy :)"
@@ -42,4 +42,4 @@ hyper = { version = "1.4.1" }
 
 [dependencies.milrouter_macros]
 path = "../router_macros"
-version = "0.2.0"
+version = "0.3.0"

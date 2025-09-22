@@ -1,6 +1,6 @@
 [package]
 name = "milrouter_macros"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Macros for the Millennium Router"
 repository = "https://github.com/tascord/milrouter"
