@@ -69,9 +69,9 @@ fi
 # --- Update TOML files ---
 
 echo "Updating Cargo.toml files..."
-toml set dependencies.milrouter_macros.version \"$NEXT_VERSION\" --toml-path router/Cargo.toml
-toml set package.version \"$NEXT_VERSION\" --toml-path router_macros/Cargo.toml
-toml set package.version \"$NEXT_VERSION\" --toml-path router/Cargo.toml
+toml set dependencies.milrouter_macros.version $NEXT_VERSION --toml-path router/Cargo.toml
+toml set package.version $NEXT_VERSION --toml-path router_macros/Cargo.toml
+toml set package.version $NEXT_VERSION --toml-path router/Cargo.toml
 
 # --- Dry Run Publish ---
 
