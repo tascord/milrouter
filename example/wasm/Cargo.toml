@@ -1,0 +1,26 @@
+[package]
+name = "wasm"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dominator = "0.5.38"
+futures-signals = "0.3.34"
+tokio = "1.47.1"
+wasm-bindgen = { version = "0.2.102", default-features = false, features = [
+  "std",
+  "spans",
+] }
+wasm-bindgen-futures = { version = "0.4.30", default-features = false }
+
+[dependencies.milrouter]
+path = "../../router"
+
+[dependencies.server]
+path = "../server"
+
+[lints]
+workspace = true

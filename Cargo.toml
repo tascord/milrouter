@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = [ "example/server", "example/wasm","router", "router_macros"]
+
+[workspace.lints.rust]
+deprecated = "warn"
+
+[workspace.lints.clippy]
+arc_with_non_send_sync = "allow"
+obfuscated_if_else = "allow"
+len_without_is_empty = "allow"
+trivially_copy_pass_by_ref = "allow"
+get_first = "allow"
+zero_prefixed_literal = "allow"
+result_large_err = "allow"
+let_and_return = "allow"
+iter_nth_zero = "allow"

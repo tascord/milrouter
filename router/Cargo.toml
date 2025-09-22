@@ -1,0 +1,45 @@
+[package]
+name = "milrouter"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/tascord/milrouter"
+description = "The Millennium Router; Making routing easy :)"
+keywords = ["router", "hyper"]
+license = "MIT"
+authors = ["Flora Hill"]
+
+[dependencies]
+anyhow = { version = "1.0.99", default-features = false, features = ["std"] }
+async_fn_traits = "0.1.1"
+futures = "0.3.30"
+log = "0.4.22"
+mime_guess = "2.0.5"
+serde_json = "1.0.127"
+tokio = { version = "1.45.1", features = ["sync"] }
+serde = { version = "1.0.209", features = ["derive"] }
+tracing = { version = "0.1.41", default-features = false, features = [
+    "std",
+    "log",
+    "attributes",
+] }
+flate2 = "1.1.2"
+
+# Server & Macro deps
+[target.'cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))'.dependencies]
+walkdir = "2.5.0"
+hyper = { version = "1.4.1", features = ["full"] }
+hyper-util = { version = "0.1.7", features = ["full"] }
+http-body-util = "0.1.2"
+bytes = "1.7.1"
+
+# Wasm deps
+[target.'cfg(any(target_arch = "wasm32", target_arch = "wasm64"))'.dependencies]
+futures-signals = "0.3.34"
+wasm-bindgen-futures = "0.4.53"
+web-sys = { version = "0.3.80", features = ["Window"] }
+reqwest = { version = "0.12.23", features = ["json"] }
+hyper = { version = "1.4.1" }
+
+[dependencies.milrouter_macros]
+path = "../router_macros"
+version = "0.1.0"
