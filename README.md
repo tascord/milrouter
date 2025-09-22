@@ -1,4 +1,4 @@
-<img width="200" height="200" align="left" style="float: left; margin: 0 10px 0 0;" alt="Icon" src="https://github.com/tascord/milrouter/blob/main/icon.png?raw=true"> 
+<img width="200" height="200" align="left" style="float: left; margin: 0 10px 0 0;" alt="Icon" src="https://github.com/tascord/milrouter/blob/main/Logo.svg?raw=true"> 
 
 # Millennium Router
 ## 
