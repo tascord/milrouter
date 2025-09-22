@@ -76,7 +76,7 @@ toml set package.version $NEXT_VERSION --toml-path router/Cargo.toml
 # --- Dry Run Publish ---
 
 echo "Performing dry run of cargo publish..."
-if ! cargo +nightly publish -p milrouter -p milrouter_macros --dry-run; then
+if ! cargo +nightly publish -p milrouter -p milrouter_macros --dry-run --allow-dirty; then
     echo "Cargo dry-run failed. Exiting without changes."
     exit 1
 fi
