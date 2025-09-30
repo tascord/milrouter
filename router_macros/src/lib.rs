@@ -3,7 +3,7 @@ use {
     heck::{AsPascalCase, AsSnekCase},
     helpers::{RouteInfo, get_inner_type, parse_fn_args, preamble, unit},
     proc_macro::{Span, TokenStream},
-    quote::{ToTokens, format_ident},
+    quote::{ToTokens, format_ident, quote},
     syn::{DeriveInput, FnArg, parse_macro_input},
 };
 
@@ -16,21 +16,21 @@ mod helpers;
 ///   Idempotency is defalted to false<br>
 ///   Providing `is_idempotent` is sufficient (no `= true` needed)<br>
 ///   See HTTP spec (https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.2)
-/// 
-/// 
+///
+///
 /// - `auth` — __Required__<br>
 ///   Function to determine which request are allowed through based on headers.<br>
 ///   The inner type returned (e.g unit in this case) is
 ///   passed to the `client` variable of the endpoint, if it exists
-/// 
+///
 /// ### Function Signature
 /// - #### Parameters (All optional):
 ///   - `client`<br>
 ///     Type derived from headers via `auth`<br>
 ///   - param (name derived from use)<br>
 ///     Type must be serializable, and representable in JSON (via serde-json).<br>
-///     If undefined, becomes unit `()` 
-/// 
+///     If undefined, becomes unit `()`
+///
 /// ### Example:
 /// ```rust
 /// #[endpoint(is_idempotent = false, auth = auth_handler)]
@@ -127,10 +127,10 @@ pub fn endpoint(annot: TokenStream, item: TokenStream) -> TokenStream {
 /// ### Example:
 /// ```rust
 /// #[derive(Router)]
-/// #[assets("./example/static")] 
-/// #[html(super_awesome_html_generator)] 
+/// #[assets("./example/static")]
+/// #[html(super_awesome_html_generator)]
 /// pub enum DemoRouter {
-///     Greet(EndpointGreet), 
+///     Greet(EndpointGreet),
 /// }
 /// ```
 #[proc_macro_derive(Router, attributes(assets, html))]
@@ -323,6 +323,12 @@ pub fn router(item: TokenStream) -> TokenStream {
         _ => quote::quote!(),
     };
 
+    let el = if assets_serving.is_empty() && default_route_case.is_empty() {
+        TokenStream::new()
+    } else {
+        quote! { else }
+    };
+
     let ts = TokenStream::from(quote::quote! {
         #[cfg(target_arch = "x86_64")]
         static __ASSETS: std::sync::LazyLock<std::collections::BTreeMap::<String, (String, &'static [u8])>> = std::sync::LazyLock::new(|| {
@@ -346,7 +352,7 @@ pub fn router(item: TokenStream) -> TokenStream {
                 if req.method() == milrouter::hyper::Method::GET {
                     #assets_serving
                     #default_route_case
-                    else {
+                    #el {
                         milrouter::tracing::warn!("[#] 404 Not Found /{}", path);
                         return Ok(
                             milrouter::hyper::Response::builder()
