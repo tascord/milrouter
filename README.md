@@ -6,7 +6,7 @@
 
 [![GitHub top language](https://img.shields.io/github/languages/top/tascord/milrouter?color=0072CE&style=for-the-badge)](#)
 [![Crates.io Version](https://img.shields.io/crates/v/milrouter?style=for-the-badge)](https://crates.io/crates/milrouter)
-[![docs.rs](https://img.shields.io/docsrs/milrouter?style=for-the-badge)](https://docs.rs/ptv)
+[![docs.rs](https://img.shields.io/docsrs/milrouter?style=for-the-badge)](https://docs.rs/milrouter)
 
 <br><br>
 
