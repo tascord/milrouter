@@ -324,7 +324,7 @@ pub fn router(item: TokenStream) -> TokenStream {
     };
 
     let el = if assets_serving.is_empty() && default_route_case.is_empty() {
-        TokenStream::new()
+        quote! {}
     } else {
         quote! { else }
     };

@@ -1,0 +1,7 @@
+/home/flora/Projects/milrouter/.devenv/flake.json
+/home/flora/Projects/milrouter/.devenv.flake.nix
+/home/flora/Projects/milrouter/.env
+/home/flora/Projects/milrouter/devenv.local.nix
+/home/flora/Projects/milrouter/devenv.lock
+/home/flora/Projects/milrouter/devenv.nix
+/home/flora/Projects/milrouter/devenv.yaml
