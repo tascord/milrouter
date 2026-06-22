@@ -142,8 +142,8 @@ pub fn endpoint(annot: TokenStream, item: TokenStream) -> TokenStream {
                 }
 
                 fn handler() -> milrouter::AsyncHandler3<#client_type, milrouter::hyper::HeaderMap, Self::Data, milrouter::anyhow::Result<Self::Returns>> {
-                    // Unreachable for stream endpoints; stream_handler() is used instead.
-                    Box::new(move |_, _, _| Box::pin(async { unreachable!("handler() called on a stream endpoint") }))
+                    // Internal: handler() is never called for stream endpoints; stream_handler() is used instead.
+                    Box::new(move |_, _, _| Box::pin(async { unreachable!("Internal error: handler() should not be called for streaming endpoints; use stream_handler() instead.") }))
                 }
 
                 fn stream_handler() -> Option<milrouter::AsyncHandler3<#client_type, milrouter::hyper::HeaderMap, Self::Data, milrouter::anyhow::Result<milrouter::ResponseStream>>> {
@@ -249,11 +249,11 @@ pub fn router(item: TokenStream) -> TokenStream {
                 let body: std::boxed::Box<dyn std::any::Any> = match std::any::type_name::<<#inner as milrouter::Endpoint<_>>::Data>() {
                     "()" => std::boxed::Box::new(()),
                     _ => {
-                        let bytes = req.collect().await.unwrap_or_else(|_| panic!("Failed to read incoming bytes for {}", stringify!(#inner_name))).to_bytes();
+                        let bytes = req.collect().await.unwrap_or_else(|e| panic!("Failed to read incoming bytes for {}: {e}", stringify!(#inner_name))).to_bytes();
                         let body_str = String::from_utf8_lossy(&bytes[..]).to_string();
                         std::boxed::Box::new(
                             milrouter::serde_json::from_str::<<#inner as milrouter::Endpoint<_>>::Data>(&body_str)
-                                .unwrap_or_else(|e| panic!("Failed to deserialise body for {}: {e}", stringify!(#inner_name)))
+                                .unwrap_or_else(|e| panic!("Failed to deserialize body for {}: {e}", stringify!(#inner_name)))
                         )
                     }
                 };
@@ -289,7 +289,7 @@ pub fn router(item: TokenStream) -> TokenStream {
                             use std::any::Any;
                             let raw: std::boxed::Box<dyn Any> = std::boxed::Box::new(response);
                             let bytes: Vec<u8> = *raw.downcast::<Vec<u8>>()
-                                .expect("raw endpoint must return Vec<u8>");
+                                .expect("Internal error: raw endpoint handler did not return Vec<u8> as expected. Ensure the endpoint function returns anyhow::Result<Vec<u8>>.");
 
                             milrouter::tracing::info!(concat!("[+] 200 Ok (raw) /", stringify!(#path)));
                             milrouter::hyper::Response::builder()
@@ -297,7 +297,7 @@ pub fn router(item: TokenStream) -> TokenStream {
                                 .body(milrouter::Body::from(bytes.as_slice()).boxed())
                                 .unwrap()
                         } else {
-                            let bytes = milrouter::serde_json::to_vec(&response).unwrap_or_else(|e| panic!("Failed to serialise response for {}: {e}", stringify!(#inner_name)));
+                            let bytes = milrouter::serde_json::to_vec(&response).unwrap_or_else(|e| panic!("Failed to serialize response for {}: {e}", stringify!(#inner_name)));
 
                             let mut compressed_file = Vec::new();
                             milrouter::gz_compress(bytes.as_slice(), &mut compressed_file).unwrap();
