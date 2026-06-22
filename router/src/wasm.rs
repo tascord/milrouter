@@ -59,7 +59,7 @@ pub fn request<R, C, E>(endpoint: E, data: E::Data) -> WasmReponse<E::Returns>
 where
     E: Endpoint<C> + IntoRouter<R> + Send + 'static,
     E::Data: Send + 'static,
-    E::Returns: 'static,
+    E::Returns: serde::de::DeserializeOwned + 'static,
     R: Router,
 {
     let base_url = web_sys::window().unwrap().origin();

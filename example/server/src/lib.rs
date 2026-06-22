@@ -4,8 +4,9 @@ use std::ops::Not;
 // Just dont want to gate even MORE things behind cfgs
 use milrouter::{Endpoint, Router, anyhow, endpoint};
 
-const HTML: &str = include_str!("../../static/index.html");
-fn super_awesome_html_generator() -> String { HTML.to_string() }
+fn super_awesome_html_generator() -> String {
+    "<!doctype html><html><head><meta charset=\"utf-8\"><title>milrouter demo</title></head><body><h1>milrouter demo</h1></body></html>".to_string()
+}
 
 pub async fn auth_handler(headers: hyper::HeaderMap) -> anyhow::Result<()> {
     headers.contains_key("evil").not().then_some(()).ok_or(anyhow::anyhow!("Evil request detected."))
