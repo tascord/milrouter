@@ -39,12 +39,19 @@ fn page() -> Dom {
                     let in_flight = in_flight.clone();
                     let resp = resp.clone();
                     spawn_local(async move {
-                     resp.set(milrouter::wasm::request(
-                        server::EndpointTheTime,
-                        () // No arg in Fn signature, so we use unit.
-                    ).await);
-                    in_flight.set(false);
-                   });
+                        #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
+                        resp.set(milrouter::wasm::request(
+                            server::EndpointTheTime,
+                            () // No arg in Fn signature, so we use unit.
+                        ).await);
+
+                        #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
+                        resp.set(Err(anyhow::anyhow!(
+                            "This example is intended to run on a wasm target."
+                        )));
+
+                        in_flight.set(false);
+                    });
                 }
              })
         }))
