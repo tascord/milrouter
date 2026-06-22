@@ -12,7 +12,10 @@ pub const LOADER_SVG: &str = r#"<svg  xmlns="http://www.w3.org/2000/svg"  width=
 fn main() { dominator::append_dom(&dominator::body(), page()); }
 
 fn page() -> Dom {
-    let resp = Mutable::<anyhow::Result<String>>::new(Ok(String::new()));
+    let resp = Mutable::<anyhow::Result<server::SearchResult>>::new(Ok(server::SearchResult {
+        matches: Vec::new(),
+        total: 0,
+    }));
     let in_flight = Mutable::<bool>::default();
 
     html!("div", {
@@ -30,7 +33,7 @@ fn page() -> Dom {
                     dom.set_outer_html(LOADER_SVG);
                 })
             }))))
-            .text("Submit")
+                .text("Run Search")
              .event({
                 let in_flight = in_flight.clone();
                 let resp = resp.clone();
@@ -41,8 +44,16 @@ fn page() -> Dom {
                     spawn_local(async move {
                         #[cfg(any(target_arch = "wasm32", target_arch = "wasm64"))]
                         resp.set(milrouter::wasm::request(
-                            server::EndpointTheTime,
-                            () // No arg in Fn signature, so we use unit.
+                            server::EndpointSearch,
+                            server::SearchQuery {
+                                needle: "or".to_string(),
+                                haystack: vec![
+                                    "router".to_string(),
+                                    "planet".to_string(),
+                                    "orbit".to_string(),
+                                    "comet".to_string(),
+                                ],
+                            }
                         ).await);
 
                         #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]

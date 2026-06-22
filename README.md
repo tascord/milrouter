@@ -14,27 +14,81 @@ A simple + relatively lightweight HTTP router for Rust, built on top of [hyper](
 ## How do?
 A snippet from the [example router](./example/server/src/lib.rs):
 ```rust
-#[endpoint(auth = auth_handler)]
+#[endpoint(auth = auth_handler, idempotent = true)]
 fn the_time() -> anyhow::Result<String> {
     use std::time::{SystemTime, UNIX_EPOCH};
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis().to_string())
 }
 
+#[endpoint(auth = auth_handler)]
+fn search(headers: hyper::HeaderMap, query: SearchQuery) -> anyhow::Result<SearchResult> {
+    let needle = query.needle.to_lowercase();
+    let matches = query
+        .haystack
+        .into_iter()
+        .filter(|v| v.to_lowercase().contains(&needle))
+        .collect::<Vec<_>>();
+
+    let _client_tag = headers.get("x-demo-client");
+    Ok(SearchResult { total: matches.len(), matches })
+}
+
+#[endpoint(auth = auth_handler, raw)]
+fn version_blob() -> anyhow::Result<Vec<u8>> {
+    Ok(b"milrouter-demo-v2\n".to_vec())
+}
+
 #[derive(Router)]
 pub enum DemoRouter {
-    TheTime(EndpointTheTime), 
+    TheTime(EndpointTheTime),
+    Search(EndpointSearch),
+    VersionBlob(EndpointVersionBlob),
 }
 ```
 
-### [wasm](./wasm/src/lib.rs):
+## Endpoint macros
+- `auth = your_auth_fn` (required): gate requests with your own async auth function.
+- `idempotent = true` (optional): uses `PUT` instead of `POST`.
+- `raw` (optional): endpoint returns `anyhow::Result<Vec<u8>>` and skips JSON/gzip.
+- `stream` (optional): endpoint returns `anyhow::Result<milrouter::ResponseStream>`.
+
+## Query tools
+`#[derive(Router)]` now generates a typed client for non-wasm targets:
 ```rust
-milrouter::wasm::request(server::EndpointTheTime, ()).await // (or .as_mutable)
-// 12345678901234
+let mut headers = hyper::HeaderMap::new();
+headers.insert("x-demo-client", hyper::header::HeaderValue::from_static("readme"));
+
+let client = DemoRouter::client("http://127.0.0.1:40000".to_string(), headers);
+let now = client.the_time(()).await?;
+let found = client.search(SearchQuery {
+    needle: "or".to_string(),
+    haystack: vec!["router".to_string(), "planet".to_string(), "orbit".to_string()],
+}).await?;
+let version = client.version_blob(()).await?;
+```
+
+In wasm, use the request helper from [example/wasm/src/lib.rs](./example/wasm/src/lib.rs):
+```rust
+milrouter::wasm::request(
+    server::EndpointSearch,
+    server::SearchQuery {
+        needle: "or".to_string(),
+        haystack: vec!["router".to_string(), "planet".to_string(), "orbit".to_string()],
+    }
+).await
 ```
 
 ### shell, if you're feeling frisky:
-We're just transporting GZipped JSON
+JSON endpoints are transported as GZipped JSON; raw endpoints are plain bytes.
 ```sh
 curl http://localhost:40000/the_time -X put --output - --compressed
 # 12345678901234
+curl http://localhost:40000/search -X post \
+  -H 'content-type: application/json' \
+  -H 'x-demo-client: shell' \
+  --data '{"needle":"or","haystack":["router","planet","orbit"]}' \
+  --output - --compressed
+
+curl http://localhost:40000/version_blob -X post --output -
+# milrouter-demo-v2
 ```

@@ -37,4 +37,8 @@ wasm-bindgen --target web target/wasm32-unknown-unknown/release/wasm.wasm --out-
 
 # Server
 echo "Starting server on http://127.0.0.1:$PORT"
+echo "Try these in another shell once it starts:"
+echo "  curl http://127.0.0.1:$PORT/the_time -X put --output - --compressed"
+echo "  curl http://127.0.0.1:$PORT/search -X post -H 'content-type: application/json' -H 'x-demo-client: shell' --data '{\"needle\":\"or\",\"haystack\":[\"router\",\"planet\",\"orbit\"]}' --output - --compressed"
+echo "  curl http://127.0.0.1:$PORT/version_blob -X post --output -"
 PORT="$PORT" cargo run -p server

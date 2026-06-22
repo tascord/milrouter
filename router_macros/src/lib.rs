@@ -389,7 +389,27 @@ pub fn router(item: TokenStream) -> TokenStream {
                         .json(&data)
                         .send()
                         .await?;
+
+                    let is_gzipped = resp
+                        .headers()
+                        .get("content-encoding")
+                        .and_then(|value| value.to_str().ok())
+                        .map(|value| {
+                            value
+                                .split(',')
+                                .any(|encoding| encoding.trim().eq_ignore_ascii_case("gzip"))
+                        })
+                        .unwrap_or(false);
+
                     let bytes = resp.bytes().await?;
+                    let bytes = if is_gzipped {
+                        let mut decompressed = Vec::new();
+                        milrouter::gz_decompress(bytes.as_ref(), &mut decompressed)?;
+                        milrouter::bytes::Bytes::from(decompressed)
+                    } else {
+                        bytes
+                    };
+
                     <#inner as milrouter::ClientEndpoint<<#inner as milrouter::TypedEndpoint>::Client>>::decode_response(bytes)
                 }
             }

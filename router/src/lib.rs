@@ -52,3 +52,10 @@ pub fn gz_compress(mut inp: impl Read, out: &mut impl Write) -> anyhow::Result<(
 
     Ok(())
 }
+
+pub fn gz_decompress(mut inp: impl Read, out: &mut impl Write) -> anyhow::Result<()> {
+    let mut decoder = flate2::read::GzDecoder::new(&mut inp);
+    std::io::copy(&mut decoder, out)?;
+
+    Ok(())
+}
