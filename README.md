@@ -1,8 +1,6 @@
 <img width="200" height="200" align="left" style="float: left; margin: 0 10px 0 0;" alt="Icon" src="https://github.com/tascord/milrouter/blob/main/Logo.svg?raw=true"> 
 
 # Millennium Router
-## 
-<h3 style="color: cornflowerblue; rotate: -5deg; margin: -60px 0px 30px;">Now with Stage 3a water restrictions!</h3>
 
 [![GitHub top language](https://img.shields.io/github/languages/top/tascord/milrouter?color=0072CE&style=for-the-badge)](#)
 [![Crates.io Version](https://img.shields.io/crates/v/milrouter?style=for-the-badge)](https://crates.io/crates/milrouter)
