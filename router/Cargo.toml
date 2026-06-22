@@ -1,6 +1,6 @@
 [package]
 name = "milrouter"
-version = "0.3.1"
+version = "1.0.0"
 edition = "2024"
 repository = "https://github.com/tascord/milrouter"
 description = "The Millennium Router; Making routing easy :)"
@@ -31,6 +31,7 @@ hyper = { version = "1.4.1", features = ["full"] }
 hyper-util = { version = "0.1.7", features = ["full"] }
 http-body-util = "0.1.2"
 bytes = "1.7.1"
+reqwest = { version = "0.12.23", features = ["json"] }
 
 # Wasm deps
 [target.'cfg(any(target_arch = "wasm32", target_arch = "wasm64"))'.dependencies]
@@ -42,4 +43,4 @@ hyper = { version = "1.4.1" }
 
 [dependencies.milrouter_macros]
 path = "../router_macros"
-version = "0.3.1"
+version = "1.0.0"

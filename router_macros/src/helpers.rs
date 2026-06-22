@@ -70,6 +70,10 @@ pub fn type_contains(t: Type, s: String) -> bool {
 pub struct RouteInfo {
     pub is_idempotent: bool,
     pub auth: proc_macro2::TokenStream,
+    /// `#[endpoint(raw, ...)]` — serve response as raw bytes, skip JSON.
+    pub raw: bool,
+    /// `#[endpoint(stream, ...)]` — serve response as a streaming body.
+    pub stream: bool,
 }
 
 impl RouteInfo {
@@ -146,8 +150,11 @@ impl RouteInfo {
                 map.get("auth")
                     .cloned()
                     .map(|a| proc_macro2::TokenStream::from_str(&a.0).unwrap())
-                    .ok_or(syn::Error::new_spanned(tokens, "No auth handler provided"))?
+                    .ok_or(syn::Error::new_spanned(tokens, "No auth handler provided. Add `auth = your_fn` to the #[endpoint(...)] attribute."))?
             },
+
+            raw: map.contains_key("raw"),
+            stream: map.contains_key("stream"),
         })
     }
 }

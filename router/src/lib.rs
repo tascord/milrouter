@@ -20,7 +20,7 @@ pub use milrouter_macros::*;
 pub use {anyhow, tokio};
 
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-pub use {bytes, futures::future::BoxFuture, http_body_util, hyper, hyper_util, serde_json, tracing};
+pub use {bytes, futures::future::BoxFuture, http_body_util, hyper, hyper_util, reqwest, serde, serde_json, tracing};
 
 /// Endpoint attribute allowing all requests through, regardless of authentication headers.
 ///
@@ -30,9 +30,13 @@ pub async fn all_aboard(_: HeaderMap) -> anyhow::Result<()> { Ok(()) }
 
 pub trait Endpoint<C> {
     type Data: DeserializeOwned + Serialize + Send;
-    type Returns: DeserializeOwned + Serialize + Send;
+    /// The return type of the endpoint.
+    /// For streaming endpoints this will be [`ResponseStream`]; for raw endpoints [`Vec<u8>`].
+    type Returns: Send;
 
     fn is_idempotent() -> bool;
+    /// The URL path segment for this endpoint (snake_case function name).
+    fn path() -> &'static str;
 }
 
 pub trait Router: Display + Sized + Send {}
