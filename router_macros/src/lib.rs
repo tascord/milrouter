@@ -80,10 +80,7 @@ pub fn endpoint(annot: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let inner_ret = err!(get_inner_type(inner_ret.clone()).map_err(|e| {
-        syn::Error::new_spanned(
-            ret.to_token_stream(),
-            format!("Unexpected return type (should be anyhow::Result<T>).\n{e}"),
-        )
+        syn::Error::new_spanned(ret.to_token_stream(), format!("Unexpected return type (should be anyhow::Result<T>).\n{e}"))
     }));
 
     let struct_name = quote::format_ident!("Endpoint{}", AsPascalCase(name.to_string()).to_string());
@@ -377,7 +374,8 @@ pub fn router(item: TokenStream) -> TokenStream {
                     #inner: milrouter::TypedEndpoint + milrouter::ClientEndpoint<<#inner as milrouter::TypedEndpoint>::Client>,
                     <#inner as milrouter::Endpoint<<#inner as milrouter::TypedEndpoint>::Client>>::Data: milrouter::serde::Serialize,
                 {
-                    let url = format!("{}/{}", self.host, <#inner as milrouter::Endpoint<<#inner as milrouter::TypedEndpoint>::Client>>::path());
+                    let host = self.host.trim_end_matches('/');
+                    let url = format!("{}/{}", host, <#inner as milrouter::Endpoint<<#inner as milrouter::TypedEndpoint>::Client>>::path());
                     let method = if <#inner as milrouter::Endpoint<<#inner as milrouter::TypedEndpoint>::Client>>::is_idempotent() {
                         milrouter::reqwest::Method::PUT
                     } else {
@@ -389,6 +387,15 @@ pub fn router(item: TokenStream) -> TokenStream {
                         .json(&data)
                         .send()
                         .await?;
+
+                    let status = resp.status();
+                    if !status.is_success() {
+                        return Err(milrouter::anyhow::anyhow!(
+                            "HTTP {}: {}",
+                            status.as_u16(),
+                            status.canonical_reason().unwrap_or("Unknown")
+                        ));
+                    }
 
                     let is_gzipped = resp
                         .headers()
@@ -565,7 +572,7 @@ pub fn router(item: TokenStream) -> TokenStream {
             ///
             /// All requests will include the provided `headers`.
             ///
-            /// ```no_run
+            /// ```ignore
             /// let client = MyRouter::client("http://localhost:8080".into(), Default::default());
             /// let result = client.my_endpoint(input).await?;
             /// ```
@@ -623,4 +630,3 @@ pub fn assets(_: TokenStream, i: TokenStream) -> TokenStream { i }
 /// If this is not provided, `/` will give a `400`
 #[proc_macro_attribute]
 pub fn html(_: TokenStream, i: TokenStream) -> TokenStream { i }
-

@@ -1,0 +1,7 @@
+/home/flora/Projects/milrouter/.devenv/bootstrap/bootstrapLib.nix
+/home/flora/Projects/milrouter/.devenv/bootstrap/default.nix
+/home/flora/Projects/milrouter/.devenv/bootstrap/resolve-lock.nix
+/home/flora/Projects/milrouter/devenv.local.nix
+/home/flora/Projects/milrouter/devenv.lock
+/home/flora/Projects/milrouter/devenv.nix
+/home/flora/Projects/milrouter/.env
