@@ -74,53 +74,143 @@ async fn main() {
 - `#[middleware(Cors, RateLimit)]` — register stackable middleware (see below).
 
 ## Middleware
-Implement the `Middleware` trait to intercept requests before they reach your endpoints. Returning `Ok(Some(response))` short-circuits the router (useful for CORS, rate-limiting, logging, etc.). Returning `Ok(None)` lets the request continue.
+Implement the `Middleware` trait to hook into the request lifecycle. Both methods have default no-op implementations, so you only need to override the ones you care about.
+
+- **`before`** — called before the endpoint. Return `Ok(Some(response))` to short-circuit the router (e.g. rate-limit rejection, CORS preflight). Return `Ok(None)` to continue.
+- **`after`** — called on the response *after* the endpoint has run. Use it to inject headers that should appear on **every** response (CORS, Server, Request-Id, etc.).
+
+Because `after` runs after the request body has been consumed by the endpoint, you should stash any request data you need in `self` during `before`.
+
+### Example: Rate Limiting (stateful `before`)
 
 ```rust
-struct CorsMiddleware;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
-impl CorsMiddleware {
-    fn new() -> Self { CorsMiddleware }
+struct RateLimiter {
+    requests: HashMap<String, Vec<Instant>>,
+    limit: usize,
+    window: Duration,
 }
 
-impl milrouter::Middleware for CorsMiddleware {
-    fn route(
+impl RateLimiter {
+    fn new(limit: usize, window: Duration) -> Self {
+        Self { requests: HashMap::new(), limit, window }
+    }
+
+    fn check(&mut self, key: &str) -> bool {
+        let now = Instant::now();
+        let entries = self.requests.entry(key.to_string()).or_default();
+        entries.retain(|&t| now.duration_since(t) < self.window);
+        if entries.len() >= self.limit { return false; }
+        entries.push(now);
+        true
+    }
+}
+
+struct RateLimitMiddleware { limiter: RateLimiter }
+
+impl RateLimitMiddleware {
+    fn new() -> Self { Self { limiter: RateLimiter::new(10, Duration::from_secs(60)) } }
+}
+
+impl milrouter::Middleware for RateLimitMiddleware {
+    fn before(
         &mut self,
         req: &hyper::Request<hyper::body::Incoming>,
     ) -> milrouter::futures::future::BoxFuture<'static, anyhow::Result<Option<hyper::Response<http_body_util::Full<bytes::Bytes>>>>> {
-        let origin = req.headers()
-            .get("origin")
+        let client_ip = req.headers()
+            .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
-            .unwrap_or("*")
+            .unwrap_or("unknown")
+            .split(',')
+            .next()
+            .unwrap_or("unknown")
+            .trim()
             .to_string();
 
+        let allowed = self.limiter.check(&client_ip);
+
         Box::pin(async move {
-            let res = hyper::Response::builder()
-                .header("Access-Control-Allow-Origin", origin.as_str())
-                .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-                .body(http_body_util::Full::new(bytes::Bytes::new()))
-                .unwrap();
-            Ok(Some(res))
+            if !allowed {
+                let res = hyper::Response::builder()
+                    .status(429)
+                    .header("Content-Type", "text/plain")
+                    .header("Retry-After", "60")
+                    .body(http_body_util::Full::new(bytes::Bytes::from("Rate limit exceeded.")))
+                    .unwrap();
+                return Ok(Some(res));
+            }
+            Ok(None)
         })
     }
 }
 ```
 
-Attach it to your router with the derive attribute:
+### Example: CORS (`before` for preflight + `after` for headers)
 
 ```rust
-#[derive(Router)]
-#[middleware(CorsMiddleware)]
-pub enum DemoRouter {
-    ...
+struct CorsMiddleware {
+    origin: Option<String>,
+}
+
+impl CorsMiddleware {
+    fn new() -> Self { CorsMiddleware { origin: None } }
+}
+
+impl milrouter::Middleware for CorsMiddleware {
+    /// Captures the Origin and short-circuits on OPTIONS.
+    fn before(
+        &mut self,
+        req: &hyper::Request<hyper::body::Incoming>,
+    ) -> milrouter::futures::future::BoxFuture<'static, anyhow::Result<Option<hyper::Response<http_body_util::Full<bytes::Bytes>>>>> {
+        self.origin = req.headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        if req.method() == hyper::Method::OPTIONS {
+            let origin = self.origin.as_deref().unwrap_or("*").to_string();
+            Box::pin(async move {
+                let res = hyper::Response::builder()
+                    .status(200)
+                    .header("Access-Control-Allow-Origin", origin.as_str())
+                    .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+                    .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                    .body(http_body_util::Full::new(bytes::Bytes::new()))
+                    .unwrap();
+                Ok(Some(res))
+            })
+        } else {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    /// Adds CORS headers to every response that makes it past `before`.
+    fn after(
+        &mut self,
+        res: &mut hyper::Response<()>,
+    ) -> milrouter::futures::future::BoxFuture<'static, anyhow::Result<()>> {
+        let origin = self.origin.as_deref().unwrap_or("*").to_string();
+        res.headers_mut().insert(
+            "Access-Control-Allow-Origin",
+            hyper::header::HeaderValue::from_str(&origin)
+                .unwrap_or_else(|_| hyper::header::HeaderValue::from_static("*")),
+        );
+        res.headers_mut().insert(
+            "Access-Control-Allow-Methods",
+            hyper::header::HeaderValue::from_static("GET, POST, PUT, OPTIONS"),
+        );
+        Box::pin(async move { Ok(()) })
+    }
 }
 ```
 
-Multiple middlewares are executed in declaration order:
+Attach middleware to your router with the derive attribute:
 
 ```rust
 #[derive(Router)]
-#[middleware(CorsMiddleware, RateLimitMiddleware)]
+#[middleware(RateLimitMiddleware, CorsMiddleware)]
 pub enum DemoRouter {
     ...
 }

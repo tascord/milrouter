@@ -250,55 +250,45 @@ pub fn expand_router(item: TokenStream) -> TokenStream {
     let default_route_case = match html {
         None => quote::quote!(),
         Some(html) => quote::quote! {
-            else if path.is_empty() {
+            if path.is_empty() {
                 milrouter::tracing::info!("[#] 200 Ok (HTML) /{}", path);
-                return Ok(
-                    milrouter::hyper::Response::builder()
-                        .status(200)
-                        .header("Content-Type", "text/html")
-                        .body(milrouter::Body::from(#html()).boxed())
-                        .unwrap()
-                )
+                break 'route milrouter::hyper::Response::builder()
+                    .status(200)
+                    .header("Content-Type", "text/html")
+                    .body(milrouter::Body::from(#html()).boxed())
+                    .unwrap();
             }
         },
     };
 
     let assets_serving = match local_assets.clone() {
         Some(_local_assets) => quote::quote! {
-             if let Some(file) = __ASSETS.get(&path) {
+            if let Some(file) = __ASSETS.get(&path) {
                 milrouter::tracing::info!("[#] 200 Ok (File) /{}", path);
-                return Ok(
-                    milrouter::hyper::Response::builder()
-                        .status(200)
-                        .header("Content-Type", file.0.to_string())
-                        .header("Content-Encoding", "gzip")
-                        .body(match std::env::var("MILROUTER_LOCAL").is_ok() {
-                            false => {
-                                let mut compressed_file = Vec::new();
-                                milrouter::gz_compress(file.1, &mut compressed_file).unwrap();
-                                milrouter::Body::from(compressed_file.as_slice()).boxed()
-                            },
-                            true => {
-                                use std::io::Read;
-                                let mut byt = Vec::new();
+                break 'route milrouter::hyper::Response::builder()
+                    .status(200)
+                    .header("Content-Type", file.0.to_string())
+                    .header("Content-Encoding", "gzip")
+                    .body(match std::env::var("MILROUTER_LOCAL").is_ok() {
+                        false => {
+                            let mut compressed_file = Vec::new();
+                            milrouter::gz_compress(file.1, &mut compressed_file).unwrap();
+                            milrouter::Body::from(compressed_file.as_slice()).boxed()
+                        },
+                        true => {
+                            use std::io::Read;
+                            let mut byt = Vec::new();
 
-                                let _ = std::fs::File::open(std::path::PathBuf::from(#local_assets).join(&path)).and_then(|mut f| f.read_to_end(&mut byt));
-                                let mut compressed_file = Vec::new();
-                                milrouter::gz_compress(byt.as_slice(), &mut compressed_file).unwrap();
-                                milrouter::Body::from(compressed_file.as_slice()).boxed()
-                            }
-                        })
-                        .unwrap()
-                )
+                            let _ = std::fs::File::open(std::path::PathBuf::from(#local_assets).join(&path)).and_then(|mut f| f.read_to_end(&mut byt));
+                            let mut compressed_file = Vec::new();
+                            milrouter::gz_compress(byt.as_slice(), &mut compressed_file).unwrap();
+                            milrouter::Body::from(compressed_file.as_slice()).boxed()
+                        }
+                    })
+                    .unwrap();
             }
         },
         _ => quote::quote!(),
-    };
-
-    let el = if assets_serving.is_empty() && default_route_case.is_empty() {
-        quote! {}
-    } else {
-        quote! { else }
     };
 
     let mware_idents: Vec<proc_macro2::Ident> = mware.as_ref().map(|mware_ts| {
@@ -308,30 +298,7 @@ pub fn expand_router(item: TokenStream) -> TokenStream {
         }).collect()
     }).unwrap_or_default();
 
-    let mware_fn = if mware_idents.is_empty() {
-        quote! {}
-    } else {
-        quote! {
-            async fn __middleware_chain(req: &milrouter::hyper::Request<milrouter::hyper::body::Incoming>, middlewares: &mut Vec<std::boxed::Box<dyn milrouter::Middleware>>) -> milrouter::anyhow::Result<Option<milrouter::hyper::Response<milrouter::http_body_util::Full<milrouter::bytes::Bytes>>>> {
-                use milrouter::Middleware;
-                for mw in middlewares.iter_mut() {
-                    match mw.route(req).await {
-                        Ok(Some(response)) => return Ok(Some(response)),
-                        Ok(None) => {}
-                        Err(e) => {
-                            milrouter::tracing::error!("[-] 500 Middleware Error: {}", e);
-                            let body = milrouter::http_body_util::Full::new(milrouter::bytes::Bytes::from(e.to_string()));
-                            return Ok(Some(milrouter::hyper::Response::builder()
-                                .status(500)
-                                .body(body)
-                                .unwrap()));
-                        }
-                    }
-                }
-                Ok(None)
-            }
-        }
-    };
+    let mware_fn = quote! {};
 
     let mware_impl = if mware_idents.is_empty() {
         quote! {
@@ -342,23 +309,77 @@ pub fn expand_router(item: TokenStream) -> TokenStream {
     } else {
         quote! {
             fn middleware(&self) -> Vec<std::boxed::Box<dyn milrouter::Middleware>> {
-                vec! #( (Box::new(#mware_idents::new()) as Box<dyn milrouter::Middleware>) )*
+                vec![#( (Box::new(#mware_idents::new()) as Box<dyn milrouter::Middleware>) ),*]
             }
         }
     };
 
-    let mware_call = if mware_idents.is_empty() {
+    let mware_init = if mware_idents.is_empty() {
         quote! {}
     } else {
         quote! {
-            let mut middlewares = vec![#( (std::boxed::Box::new(#mware_idents::new()) as std::boxed::Box<dyn milrouter::Middleware>) )*];
-            if let Ok(Some(response)) = __middleware_chain(&req, &mut middlewares).await {
-                let headers = response.headers().clone();
-                let body = response.into_body().boxed();
-                let mut res = milrouter::hyper::Response::new(body);
-                *res.headers_mut() = headers;
-                return Ok(res);
+            let mut middlewares = vec![#( (std::boxed::Box::new(#mware_idents::new()) as std::boxed::Box<dyn milrouter::Middleware>) ),*];
+        }
+    };
+
+    let mware_before = if mware_idents.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            let mut __sc: Option<milrouter::hyper::Response<milrouter::http_body_util::Full<milrouter::bytes::Bytes>>> = None;
+            for mw in middlewares.iter_mut() {
+                match mw.before(&req).await {
+                    Ok(Some(response)) => { __sc = Some(response); break; }
+                    Ok(None) => {}
+                    Err(e) => {
+                        milrouter::tracing::error!("[-] 500 Middleware before hook error: {}", e);
+                        let body = milrouter::http_body_util::Full::new(milrouter::bytes::Bytes::from(e.to_string()));
+                        __sc = Some(milrouter::hyper::Response::builder()
+                            .status(500)
+                            .body(body)
+                            .unwrap());
+                        break;
+                    }
+                }
             }
+            if let Some(sc) = __sc {
+                let status = sc.status();
+                let headers = sc.headers().clone();
+                let body = milrouter::http_body_util::BodyExt::boxed(sc.into_body());
+                let mut builder = milrouter::hyper::Response::builder().status(status);
+                for (k, v) in &headers {
+                    builder = builder.header(k, v);
+                }
+                let mut response = builder.body(body).unwrap();
+                {
+                    let (mut parts, body) = response.into_parts();
+                    let mut hollow = milrouter::hyper::Response::from_parts(parts, ());
+                for mw in middlewares.iter_mut() {
+                    if let Err(e) = mw.after(&mut hollow).await {
+                        milrouter::tracing::error!("Middleware after hook error: {}", e);
+                    }
+                }
+                    let (parts, _) = hollow.into_parts();
+                    response = milrouter::hyper::Response::from_parts(parts, body);
+                }
+                return Ok(response);
+            }
+        }
+    };
+
+    let mware_after = if mware_idents.is_empty() {
+        quote! { Ok(response) }
+    } else {
+        quote! {
+            let (mut parts, body) = response.into_parts();
+            let mut hollow = milrouter::hyper::Response::from_parts(parts, ());
+            for mw in middlewares.iter_mut() {
+                if let Err(e) = mw.after(&mut hollow).await {
+                    milrouter::tracing::error!("Middleware after hook error: {}", e);
+                }
+            }
+            let (parts, _) = hollow.into_parts();
+            Ok(milrouter::hyper::Response::from_parts(parts, body))
         }
     };
 
@@ -390,50 +411,50 @@ pub fn expand_router(item: TokenStream) -> TokenStream {
                 let method = req.method().clone();
                 let is_idempotent = req.method().is_idempotent();
 
-                #mware_call
+                #mware_init
+                #mware_before
 
-                if method == milrouter::hyper::Method::GET {
-                    #assets_serving
-                    #default_route_case
-                    #el {
-                        milrouter::tracing::warn!("[#] 404 Not Found /{}", path);
-                        return Ok(
-                            milrouter::hyper::Response::builder()
-                                .status(404)
-                                .body(milrouter::Body::default().boxed())
-                                .unwrap()
-                        )
+                let response: milrouter::hyper::Response<milrouter::MilBody> = 'route: {
+                    if method == milrouter::hyper::Method::GET {
+                        #assets_serving
+                        #default_route_case
+                        break 'route milrouter::hyper::Response::builder()
+                            .status(404)
+                            .body(milrouter::Body::default().boxed())
+                            .unwrap();
                     }
-                }
 
-                Ok(match milrouter::tokio::task::spawn(async move {
-                    match (path.as_str(), is_idempotent) {
-                        #(#paths)*
-                        path => {
-                            milrouter::tracing::info!("[?] 404 Not Found /{}", path.0);
+                    break 'route match milrouter::tokio::task::spawn(async move {
+                        match (path.as_str(), is_idempotent) {
+                            #(#paths)*
+                            path => {
+                                milrouter::tracing::info!("[?] 404 Not Found /{}", path.0);
+                                milrouter::hyper::Response::builder()
+                                    .status(404)
+                                    .body(milrouter::Body::default().boxed())
+                                    .unwrap()
+                            }
+                        }
+                    }).await {
+                        Ok(inner) => inner,
+                        Err(err) => {
+                            let err = err.into_panic();
+                            let value = err
+                                .downcast_ref::<String>()
+                                .cloned()
+                                .or(err.downcast_ref::<&str>().map(|s| s.to_string()))
+                                .unwrap_or_else(|| "[Unexpected Error]".to_string());
+
+                            milrouter::tracing::error!("[-] 500 Internal Server Error: {value}");
                             milrouter::hyper::Response::builder()
-                                .status(404)
-                                .body(milrouter::Body::default().boxed())
+                                .status(500)
+                                .body(milrouter::Body::from(value).boxed())
                                 .unwrap()
                         }
-                    }
-                }).await {
-                    Ok(inner) => inner,
-                    Err(err) => {
-                        let err = err.into_panic();
-                        let value = err
-                            .downcast_ref::<String>()
-                            .cloned()
-                            .or(err.downcast_ref::<&str>().map(|s| s.to_string()))
-                            .unwrap_or_else(|| "[Unexpected Error]".to_string());
+                    };
+                };
 
-                        milrouter::tracing::error!("[-] 500 Internal Server Error: {value}");
-                        milrouter::hyper::Response::builder()
-                            .status(500)
-                            .body(milrouter::Body::from(value).boxed())
-                            .unwrap()
-                    }
-                })
+                #mware_after
             }
 
             #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]

@@ -29,7 +29,11 @@ pub fn into_response_stream(stream: impl Stream<Item = Bytes> + Send + Sync + 's
     Box::pin(stream)
 }
 
-/// The unified response body type produced by all router `route()` functions.
+/// The unified response body type produced by all generated router `route()` functions.
+///
+/// JSON endpoints return a boxed `Full<Bytes>`; streaming endpoints return a boxed
+/// `StreamBody`; raw endpoints return a boxed `Body`.  All converge into this alias
+/// so the router trait has a single body type.
 pub type MilBody = BoxBody<Bytes, std::convert::Infallible>;
 
 // ── IOTypeNotSend (internal hyper helper) ──────────────────────────────────
@@ -106,8 +110,12 @@ pub type AsyncHandler3<I, I2, I3, O> = Box<dyn Fn(I, I2, I3) -> BoxFuture<'stati
 
 // ── ServerEndpoint ─────────────────────────────────────────────────────────
 
+/// Server wiring for a single endpoint. Implemented automatically by `#[endpoint]`.
+///
+/// Provides the auth function, the request handler, and flags for raw/streaming modes.
 #[allow(clippy::type_complexity)]
 pub trait ServerEndpoint<C>: Endpoint<C> {
+    /// The auth function declared in `#[endpoint(auth = ...)]`.
     fn auth() -> AsyncHandler<HeaderMap, Result<C, anyhow::Error>>;
 
     /// Handler for normal (JSON) and raw endpoints.

@@ -9,7 +9,7 @@ fn spawn_server() -> (std::net::SocketAddr, tokio::runtime::Runtime) {
     drop(probe);
 
     std::thread::spawn(move || {
-        let _ = milrouter::serve_local(addr, DemoRouter::route);
+        let _ = milrouter::serve_local(addr, DemoRouter::new());
     });
 
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();

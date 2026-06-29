@@ -54,6 +54,7 @@ impl RateLimiter {
     }
 }
 
+/// Stateful middleware that limits requests per client IP.
 struct RateLimitMiddleware {
     limiter: RateLimiter,
 }
@@ -62,33 +63,14 @@ impl RateLimitMiddleware {
     fn new() -> Self {
         Self { limiter: RateLimiter::new(10, Duration::from_secs(60)) }
     }
-
-    async fn route(&mut self, req: &Request<Incoming>) -> anyhow::Result<Option<Response<Full<Bytes>>>> {
-        let client_ip = req.headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("unknown")
-            .split(',')
-            .next()
-            .unwrap_or("unknown")
-            .trim()
-            .to_string();
-
-        if !self.limiter.check(&client_ip) {
-            let res = Response::builder()
-                .status(429)
-                .header("Content-Type", "text/plain")
-                .header("Retry-After", "60")
-                .body(Full::new(Bytes::from("Rate limit exceeded. Try again in 60 seconds.")))
-                .unwrap();
-            return Ok(Some(res));
-        }
-        Ok(None)
-    }
 }
 
 impl milrouter::Middleware for RateLimitMiddleware {
-    fn route(&mut self, req: &Request<Incoming>) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
+    /// Short-circuit with 429 when the client exceeds the rate limit.
+    fn before(
+        &mut self,
+        req: &Request<Incoming>,
+    ) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
         let client_ip = req.headers()
             .get("x-forwarded-for")
             .and_then(|v| v.to_str().ok())
@@ -116,38 +98,62 @@ impl milrouter::Middleware for RateLimitMiddleware {
     }
 }
 
-struct CorsMiddleware;
+/// Pipe-style middleware: lets requests through but injects CORS headers into
+/// every response via the `after` hook.  Also handles OPTIONS preflight in the
+/// `before` hook.
+struct CorsMiddleware {
+    origin: Option<String>,
+}
 
 impl CorsMiddleware {
-    fn new() -> Self { CorsMiddleware }
-
-    async fn route(&self, req: &Request<Incoming>) -> anyhow::Result<Option<Response<Full<Bytes>>>> {
-        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("*");
-        let res = Response::builder()
-            .header("Access-Control-Allow-Origin", origin)
-            .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-            .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-            .header("Access-Control-Max-Age", "86400")
-            .body(Full::new(Bytes::new()))
-            .unwrap();
-        Ok(Some(res))
-    }
+    fn new() -> Self { CorsMiddleware { origin: None } }
 }
 
 impl milrouter::Middleware for CorsMiddleware {
-    fn route(&mut self, req: &Request<Incoming>) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
-        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("*").to_string();
+    /// Handle CORS preflight by short-circuiting with the appropriate headers.
+    /// Also stash the requested `Origin` so `after` can echo it back.
+    fn before(
+        &mut self,
+        req: &Request<Incoming>,
+    ) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
+        self.origin = req.headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
 
-        Box::pin(async move {
-            let res = Response::builder()
-                .header("Access-Control-Allow-Origin", origin.as_str())
-                .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-                .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-                .header("Access-Control-Max-Age", "86400")
-                .body(Full::new(Bytes::new()))
-                .unwrap();
-            Ok(Some(res))
-        })
+        if req.method() == hyper::Method::OPTIONS {
+            let origin = self.origin.as_deref().unwrap_or("*").to_string();
+            Box::pin(async move {
+                let res = Response::builder()
+                    .status(200)
+                    .header("Access-Control-Allow-Origin", origin.as_str())
+                    .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+                    .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                    .header("Access-Control-Max-Age", "86400")
+                    .body(Full::new(Bytes::new()))
+                    .unwrap();
+                Ok(Some(res))
+            })
+        } else {
+            Box::pin(async { Ok(None) })
+        }
+    }
+
+    /// Add CORS headers to every response that makes it past `before`.
+    fn after(
+        &mut self,
+        res: &mut Response<()>,
+    ) -> BoxFuture<'static, anyhow::Result<()>> {
+        let origin = self.origin.as_deref().unwrap_or("*").to_string();
+        res.headers_mut().insert(
+            "Access-Control-Allow-Origin",
+            hyper::header::HeaderValue::from_str(&origin).unwrap_or_else(|_| hyper::header::HeaderValue::from_static("*")),
+        );
+        res.headers_mut().insert(
+            "Access-Control-Allow-Methods",
+            hyper::header::HeaderValue::from_static("GET, POST, PUT, OPTIONS"),
+        );
+        Box::pin(async move { Ok(()) })
     }
 }
 
@@ -198,10 +204,11 @@ fn version_blob() -> anyhow::Result<Vec<u8>> { Ok(b"milrouter-demo-v2\n".to_vec(
 
 #[derive(Router)]
 #[assets("./example/static")] // Optional.
-                              // Serves static assets (relative to the file in which its invoked)
-                              // If `MILROUTER_LOCAL` is set, will read from disk every request
-                              // Otherwise, will load into LazyLock
+                               // Serves static assets (relative to the file in which its invoked)
+                               // If `MILROUTER_LOCAL` is set, will read from disk every request
+                               // Otherwise, will load into LazyLock
 #[html(super_awesome_html_generator)] // Optional.
+#[middleware(RateLimitMiddleware, CorsMiddleware)]
 pub enum DemoRouter {
     TheTime(EndpointTheTime), // `EndpointTheTime` is created by the #[endpoint] macro.
                               // It impls the traits required to make requests.

@@ -43,4 +43,4 @@ hyper = { version = "1.4.1" }
 
 [dependencies.milrouter_macros]
 path = "../router_macros"
-version = "1.0.2"
+version = "1.1.0"
