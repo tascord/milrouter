@@ -39,10 +39,26 @@ fn version_blob() -> anyhow::Result<Vec<u8>> {
 }
 
 #[derive(Router)]
+#[assets("./example/static")]    // Optional — embed & serve static files.
+#[html(super_awesome_html_generator)]  // Optional — serve a fallback HTML generator.
 pub enum DemoRouter {
     TheTime(EndpointTheTime),
     Search(EndpointSearch),
     VersionBlob(EndpointVersionBlob),
+}
+```
+
+## Starting a server
+`#[derive(Router)]` generates a `Router` impl with a `new()` constructor. Pass the instance to one of the built-in helpers:
+
+```rust
+// Single-thread local set — easiest for standalone binaries.
+milrouter::serve_local("127.0.0.1:8080".parse().unwrap(), DemoRouter::new()).unwrap();
+
+// Or, inside an existing Tokio runtime:
+#[tokio::main]
+async fn main() {
+    milrouter::serve("127.0.0.1:8080".parse().unwrap(), DemoRouter::new()).await.unwrap();
 }
 ```
 
@@ -51,6 +67,64 @@ pub enum DemoRouter {
 - `idempotent = true` (optional): uses `PUT` instead of `POST`.
 - `raw` (optional): endpoint returns `anyhow::Result<Vec<u8>>` and skips JSON/gzip.
 - `stream` (optional): endpoint returns `anyhow::Result<milrouter::ResponseStream>`.
+
+## Router attributes
+- `#[assets("./static")]` — embed static files at compile time (served from `static/`). Set `MILROUTER_LOCAL` to read from disk instead.
+- `#[html(my_html_fn)]` — register a fallback HTML generator for `/`.
+- `#[middleware(Cors, RateLimit)]` — register stackable middleware (see below).
+
+## Middleware
+Implement the `Middleware` trait to intercept requests before they reach your endpoints. Returning `Ok(Some(response))` short-circuits the router (useful for CORS, rate-limiting, logging, etc.). Returning `Ok(None)` lets the request continue.
+
+```rust
+struct CorsMiddleware;
+
+impl CorsMiddleware {
+    fn new() -> Self { CorsMiddleware }
+}
+
+impl milrouter::Middleware for CorsMiddleware {
+    fn route(
+        &mut self,
+        req: &hyper::Request<hyper::body::Incoming>,
+    ) -> milrouter::futures::future::BoxFuture<'static, anyhow::Result<Option<hyper::Response<http_body_util::Full<bytes::Bytes>>>>> {
+        let origin = req.headers()
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("*")
+            .to_string();
+
+        Box::pin(async move {
+            let res = hyper::Response::builder()
+                .header("Access-Control-Allow-Origin", origin.as_str())
+                .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+                .body(http_body_util::Full::new(bytes::Bytes::new()))
+                .unwrap();
+            Ok(Some(res))
+        })
+    }
+}
+```
+
+Attach it to your router with the derive attribute:
+
+```rust
+#[derive(Router)]
+#[middleware(CorsMiddleware)]
+pub enum DemoRouter {
+    ...
+}
+```
+
+Multiple middlewares are executed in declaration order:
+
+```rust
+#[derive(Router)]
+#[middleware(CorsMiddleware, RateLimitMiddleware)]
+pub enum DemoRouter {
+    ...
+}
+```
 
 ## Query tools
 `#[derive(Router)]` now generates a typed client for non-wasm targets:
