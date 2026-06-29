@@ -1,5 +1,5 @@
 use {
-    crate::Endpoint,
+    crate::{Endpoint, Router},
     futures::{Stream, StreamExt, future::BoxFuture},
     http_body_util::{BodyExt, Full, StreamBody, combinators::BoxBody},
     hyper::{
@@ -149,13 +149,12 @@ pub trait ClientEndpoint<C>: Endpoint<C> {
 /// This is the simplest way to host a router when you don't already have a
 /// Tokio runtime running.  Call from `main()` or any non-async context.
 ///
-/// ```no_run
-/// milrouter::serve_local("127.0.0.1:8080".parse().unwrap(), MyRouter::route).unwrap();
+/// ```ignore
+/// milrouter::serve_local("127.0.0.1:8080".parse().unwrap(), MyRouter).unwrap();
 /// ```
-pub fn serve_local<RouteFut>(addr: SocketAddr, route: fn(hyper::Request<Incoming>) -> RouteFut) -> anyhow::Result<()>
+pub fn serve_local<R>(addr: SocketAddr, router: R) -> anyhow::Result<()>
 where
-    RouteFut:
-        Future<Output = Result<hyper::Response<MilBody>, std::convert::Infallible>> + 'static,
+    R: Router + Send + Sync + 'static,
 {
     use {
         hyper::server::conn::http1,
@@ -168,10 +167,13 @@ where
     let listener = ls.block_on(&rt, TcpListener::bind(addr))?;
     tracing::info!("Listening on http://{}", addr);
 
+    let router = std::sync::Arc::new(router);
+
     loop {
         let (stream, _) = ls.block_on(&rt, listener.accept())?;
         let io = IOTypeNotSend::new(TokioIo::new(stream));
-        let service = service_fn(route);
+        let router = router.clone();
+        let service = service_fn(move |req| router.route(req));
         ls.spawn_local(async move {
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
                 tracing::warn!("Error serving connection: {:?}", err);
@@ -185,18 +187,15 @@ where
 /// Await this from an `async` context (e.g. inside `#[tokio::main]`).  Each
 /// accepted connection is spawned as a normal `tokio::task`.
 ///
-/// ```no_run
+/// ```ignore
 /// #[tokio::main]
 /// async fn main() {
-///     milrouter::serve("127.0.0.1:8080".parse().unwrap(), MyRouter::route).await.unwrap();
+///     milrouter::serve("127.0.0.1:8080".parse().unwrap(), MyRouter).await.unwrap();
 /// }
 /// ```
-pub async fn serve<RouteFut>(addr: SocketAddr, route: fn(hyper::Request<Incoming>) -> RouteFut) -> anyhow::Result<()>
+pub async fn serve<R>(addr: SocketAddr, router: R) -> anyhow::Result<()>
 where
-    RouteFut:
-        Future<Output = Result<hyper::Response<MilBody>, std::convert::Infallible>>
-        + Send
-        + 'static,
+    R: Router + Send + Sync + 'static,
 {
     use {
         hyper::server::conn::http1,
@@ -206,10 +205,13 @@ where
     let listener = TcpListener::bind(addr).await?;
     tracing::info!("Listening on http://{}", addr);
 
+    let router = std::sync::Arc::new(router);
+
     loop {
         let (stream, _) = listener.accept().await?;
         let io = TokioIo::new(stream);
-        let service = service_fn(route);
+        let router = router.clone();
+        let service = service_fn(move |req| router.route(req));
         tokio::spawn(async move {
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
                 tracing::warn!("Error serving connection: {:?}", err);

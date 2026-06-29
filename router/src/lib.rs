@@ -1,5 +1,5 @@
 use {
-    hyper::HeaderMap,
+    hyper::{HeaderMap, body::Incoming},
     serde::{Serialize, de::DeserializeOwned},
     std::{
         fmt::Display,
@@ -15,12 +15,14 @@ pub mod server;
 
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
 pub use server::*;
-
-pub use milrouter_macros::*;
-pub use {anyhow, tokio};
-
+pub use {anyhow, milrouter_macros::*, tokio};
 #[cfg(not(any(target_arch = "wasm32", target_arch = "wasm64")))]
-pub use {bytes, futures::future::BoxFuture, http_body_util, hyper, hyper_util, reqwest, serde, serde_json, tracing};
+pub use {bytes, futures, futures::future::BoxFuture, http_body_util, hyper, hyper_util, reqwest, serde, serde_json, tracing};
+use {
+    bytes::Bytes,
+    http_body_util::Full,
+    hyper::{Request, Response},
+};
 
 /// Endpoint attribute allowing all requests through, regardless of authentication headers.
 ///
@@ -39,7 +41,14 @@ pub trait Endpoint<C> {
     fn path() -> &'static str;
 }
 
-pub trait Router: Display + Sized + Send {}
+pub trait Router: Display + Sized + Send {
+    fn route(
+        &self,
+        req: hyper::Request<Incoming>,
+    ) -> futures::future::BoxFuture<'static, Result<hyper::Response<MilBody>, std::convert::Infallible>>;
+
+    fn middleware(&self) -> Vec<Box<dyn Middleware>>;
+}
 
 pub trait IntoRouter<R: Router> {
     #[must_use]
@@ -58,4 +67,8 @@ pub fn gz_decompress(mut inp: impl Read, out: &mut impl Write) -> anyhow::Result
     std::io::copy(&mut decoder, out)?;
 
     Ok(())
+}
+
+pub trait Middleware: Send {
+    fn route(&mut self, req: &Request<Incoming>) -> futures::future::BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>>;
 }

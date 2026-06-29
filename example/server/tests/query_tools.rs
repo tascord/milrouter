@@ -10,7 +10,7 @@ fn typed_client_roundtrip_covers_query_tools() -> Result<(), Box<dyn std::error:
     drop(probe);
 
     std::thread::spawn(move || {
-        let _ = milrouter::serve_local(addr, DemoRouter::route);
+        let _ = milrouter::serve_local(addr, DemoRouter::new());
     });
 
     let mut headers = hyper::HeaderMap::new();

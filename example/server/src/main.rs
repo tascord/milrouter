@@ -13,5 +13,5 @@ fn main() {
             .unwrap();
 
     info!("Starting milrouter demo on http://{addr}");
-    milrouter::serve_local(addr, DemoRouter::route).unwrap();
+    milrouter::serve_local(addr, DemoRouter::new()).unwrap();
 }

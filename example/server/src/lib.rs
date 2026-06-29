@@ -1,8 +1,15 @@
 #![allow(unused)]
+use std::collections::HashMap;
 use std::ops::Not;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 // Just dont want to gate even MORE things behind cfgs
 use milrouter::{Endpoint, Router, anyhow, endpoint};
+use bytes::Bytes;
+use hyper::{Request, Response, body::Incoming};
+use http_body_util::Full;
+use milrouter::futures::future::BoxFuture;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SearchQuery {
@@ -24,6 +31,126 @@ pub async fn auth_handler(headers: hyper::HeaderMap) -> anyhow::Result<()> {
     headers.contains_key("evil").not().then_some(()).ok_or(anyhow::anyhow!("Evil request detected."))
 }
 
+struct RateLimiter {
+    requests: HashMap<String, Vec<Instant>>,
+    limit: usize,
+    window: Duration,
+}
+
+impl RateLimiter {
+    fn new(limit: usize, window: Duration) -> Self {
+        Self { requests: HashMap::new(), limit, window }
+    }
+
+    fn check(&mut self, key: &str) -> bool {
+        let now = Instant::now();
+        let entries = self.requests.entry(key.to_string()).or_default();
+        entries.retain(|&t| now.duration_since(t) < self.window);
+        if entries.len() >= self.limit {
+            return false;
+        }
+        entries.push(now);
+        true
+    }
+}
+
+struct RateLimitMiddleware {
+    limiter: RateLimiter,
+}
+
+impl RateLimitMiddleware {
+    fn new() -> Self {
+        Self { limiter: RateLimiter::new(10, Duration::from_secs(60)) }
+    }
+
+    async fn route(&mut self, req: &Request<Incoming>) -> anyhow::Result<Option<Response<Full<Bytes>>>> {
+        let client_ip = req.headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .split(',')
+            .next()
+            .unwrap_or("unknown")
+            .trim()
+            .to_string();
+
+        if !self.limiter.check(&client_ip) {
+            let res = Response::builder()
+                .status(429)
+                .header("Content-Type", "text/plain")
+                .header("Retry-After", "60")
+                .body(Full::new(Bytes::from("Rate limit exceeded. Try again in 60 seconds.")))
+                .unwrap();
+            return Ok(Some(res));
+        }
+        Ok(None)
+    }
+}
+
+impl milrouter::Middleware for RateLimitMiddleware {
+    fn route(&mut self, req: &Request<Incoming>) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
+        let client_ip = req.headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .split(',')
+            .next()
+            .unwrap_or("unknown")
+            .trim()
+            .to_string();
+
+        let allowed = self.limiter.check(&client_ip);
+
+        Box::pin(async move {
+            if !allowed {
+                let res = Response::builder()
+                    .status(429)
+                    .header("Content-Type", "text/plain")
+                    .header("Retry-After", "60")
+                    .body(Full::new(Bytes::from("Rate limit exceeded. Try again in 60 seconds.")))
+                    .unwrap();
+                return Ok(Some(res));
+            }
+            Ok(None)
+        })
+    }
+}
+
+struct CorsMiddleware;
+
+impl CorsMiddleware {
+    fn new() -> Self { CorsMiddleware }
+
+    async fn route(&self, req: &Request<Incoming>) -> anyhow::Result<Option<Response<Full<Bytes>>>> {
+        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("*");
+        let res = Response::builder()
+            .header("Access-Control-Allow-Origin", origin)
+            .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+            .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            .header("Access-Control-Max-Age", "86400")
+            .body(Full::new(Bytes::new()))
+            .unwrap();
+        Ok(Some(res))
+    }
+}
+
+impl milrouter::Middleware for CorsMiddleware {
+    fn route(&mut self, req: &Request<Incoming>) -> BoxFuture<'static, anyhow::Result<Option<Response<Full<Bytes>>>>> {
+        let origin = req.headers().get("origin").and_then(|v| v.to_str().ok()).unwrap_or("*").to_string();
+
+        Box::pin(async move {
+            let res = Response::builder()
+                .header("Access-Control-Allow-Origin", origin.as_str())
+                .header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+                .header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                .header("Access-Control-Max-Age", "86400")
+                .body(Full::new(Bytes::new()))
+                .unwrap();
+            Ok(Some(res))
+        })
+    }
+}
+
 #[endpoint(
     idempotent = true,     // Optional. `true` => PUT, `false` (default) => POST.
 
@@ -35,7 +162,7 @@ pub async fn auth_handler(headers: hyper::HeaderMap) -> anyhow::Result<()> {
 
 )]
 fn the_time(
-    client: (), // Optional, As above. 
+    client: (), // Optional, As above.
     param1: ()  // Optional.
                 // If not present, type defaults to unit.
 
@@ -46,7 +173,7 @@ fn the_time(
 {
     use std::time::{SystemTime, UNIX_EPOCH};
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis().to_string())
-    
+
     // All serialization (requests + responses) are done via serde_json for ease of debugging.
     // If you would like more options (e.g bincoding), create an issue.
 }
@@ -78,7 +205,7 @@ fn version_blob() -> anyhow::Result<Vec<u8>> { Ok(b"milrouter-demo-v2\n".to_vec(
 pub enum DemoRouter {
     TheTime(EndpointTheTime), // `EndpointTheTime` is created by the #[endpoint] macro.
                               // It impls the traits required to make requests.
-                              // 
+                              //
                               // `TheTime` can be named however youd like. It corresponds
                               //  to the underlying route name.
     Search(EndpointSearch),

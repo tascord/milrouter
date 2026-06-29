@@ -147,10 +147,12 @@ impl RouteInfo {
             },
 
             auth: {
-                map.get("auth")
-                    .cloned()
-                    .map(|a| proc_macro2::TokenStream::from_str(&a.0).unwrap())
-                    .ok_or(syn::Error::new_spanned(tokens, "No auth handler provided. Add `auth = your_fn` to the #[endpoint(...)] attribute."))?
+                map.get("auth").cloned().map(|a| proc_macro2::TokenStream::from_str(&a.0).unwrap()).ok_or(
+                    syn::Error::new_spanned(
+                        tokens,
+                        "No auth handler provided. Add `auth = your_fn` to the #[endpoint(...)] attribute.",
+                    ),
+                )?
             },
 
             raw: map.contains_key("raw"),
@@ -227,7 +229,7 @@ fn strip(a: &str) -> String {
     a.strip_prefix("\"").and_then(|b| b.strip_suffix("\"")).map(|v| v.to_string()).unwrap_or(a.to_string())
 }
 
-pub fn parse_attrs(input: DeriveInput) -> (Option<TokenStream>, Option<String>) {
+pub fn parse_attrs(input: DeriveInput) -> (Option<TokenStream>, Option<String>, Option<TokenStream>) {
     let local_assets = input.attrs.iter().find(|a| a.path().is_ident("assets"));
     let local_assets = local_assets.map(|a| {
         err!(
@@ -246,9 +248,20 @@ pub fn parse_attrs(input: DeriveInput) -> (Option<TokenStream>, Option<String>) 
         )
     });
 
+    let mware = input.attrs.iter().find(|a| a.path().is_ident("middleware"));
+    let mware = mware.map(|a| {
+        let parser = syn::punctuated::Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated;
+        err!(a.parse_args_with(parser)
+            .map(|p| p.to_token_stream())
+            .map_err(|_| syn::Error::new_spanned(
+                a.into_token_stream(),
+                "Middleware attribute should point to one or more functions (comma separated)"
+            )))
+    });
+
     let local_assets = local_assets.map(|a| {
         format!("{}/{}", env::current_dir().map(|d| d.display().to_string()).unwrap_or_default(), strip(&a.to_string()))
     });
 
-    (html, local_assets)
+    (html, local_assets, mware)
 }

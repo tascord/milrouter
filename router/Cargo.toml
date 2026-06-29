@@ -1,6 +1,6 @@
 [package]
 name = "milrouter"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 repository = "https://github.com/tascord/milrouter"
 description = "The Millennium Router; Making routing easy :)"
